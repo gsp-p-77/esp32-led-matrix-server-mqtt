@@ -22,6 +22,9 @@
 #include <WiFiServer.h>
 #include <PubSubClient.h>
 #include <ArduinoJson.h>
+#include <ESPmDNS.h>
+#include <ArduinoOTA.h>
+
 
 //RingBuffer
 #define BUFFER_SIZE 20       // Maximum number of messages in the buffer
@@ -98,9 +101,13 @@ PubSubClient client(espClient);
 MD_MAX72XX mx = MD_MAX72XX(HARDWARE_TYPE, CS_PIN, MAX_DEVICES);
 #define DELAYTIME 100 // in milliseconds
 
+// Insert your WiFi secrets here:
+#define SECRET_SSID "FRITZ!Box 7530 RR" // Your network SSID (name)    
+#define SECRET_PASS "06420304028449282342" // Your network password
+
 // WiFi login parameters - network name and password
-const char ssid[] = "FRITZ!Box 7530 RR";
-const char password[] = "06420304028449282342";
+const char ssid[] = SECRET_SSID;
+const char password[] = SECRET_PASS;
 
 // WiFi Server object and parameters
 WiFiServer server(80);
@@ -346,6 +353,7 @@ void mqttWiFiDemoApp_init(void)
   if (wifiM_state == wifiM_NOT_INITIALIZED)
   {
     Serial.println("Connect to my WIFI");
+    WiFi.mode(WIFI_STA);
     WiFi.begin(ssid, password);
 
     byte cnt = 0;
@@ -359,9 +367,46 @@ void mqttWiFiDemoApp_init(void)
         ESP.restart();
         }
     } 
+    
     Serial.println(WiFi.localIP());
     wifiM_state = wifiM_INITIALIZED;
 
+    //OTA
+ArduinoOTA.onStart([]() {
+      String type;
+      if (ArduinoOTA.getCommand() == U_FLASH) {
+        type = "sketch";
+      } else {  // U_SPIFFS
+        type = "filesystem";
+      }
+
+      // NOTE: if updating SPIFFS this would be the place to unmount SPIFFS using SPIFFS.end()
+      Serial.println("Start updating " + type);
+    })
+    .onEnd([]() {
+      Serial.println("\nEnd");
+    })
+    .onProgress([](unsigned int progress, unsigned int total) {
+      Serial.printf("Progress: %u%%\r", (progress / (total / 100)));
+    })
+    .onError([](ota_error_t error) {
+      Serial.printf("Error[%u]: ", error);
+      if (error == OTA_AUTH_ERROR) {
+        Serial.println("Auth Failed");
+      } else if (error == OTA_BEGIN_ERROR) {
+        Serial.println("Begin Failed");
+      } else if (error == OTA_CONNECT_ERROR) {
+        Serial.println("Connect Failed");
+      } else if (error == OTA_RECEIVE_ERROR) {
+        Serial.println("Receive Failed");
+      } else if (error == OTA_END_ERROR) {
+        Serial.println("End Failed");
+      }
+    });
+
+    ArduinoOTA.begin();    
+    
+    //MQTT
     client.setServer(mqtt_server, 1883);
     client.setCallback(callback);    
   }
@@ -377,7 +422,10 @@ void mqttWiFiDemoApp_backGroundTask(void)
   if (!client.loop())
   {
     client.connect("ESP32MQTT");
-  }  
+  }
+
+  
+
 }
 
 
@@ -393,35 +441,48 @@ void setup()
 
   mx.begin();
   mqttWiFiDemoApp_init();
+  Serial.println("Waiting OTA update for 15 s....");
 }
 
 
 void loop()
 {
-    uint64_t gSystemTimer1msLastSnapshot = millis();
+    static uint64_t gSystemTimer1msLastSnapshot = millis();
   	bool delay_done = true;
+    static bool wait_OTA = true;
     static char message[MAX_MSG_LENGTH];
     static uint8_t delay_1s = 0;
 
-    if ((millis() - gSystemTimer1msLastSnapshot) >= delay_1s * 1000)
+    if (wait_OTA)
     {
-      gSystemTimer1msLastSnapshot = millis();
-      delay_done = true;
-
-    }
-    
-    mqttWiFiDemoApp_backGroundTask();
-
-    if (delay_done)
-    {
-      // Check if there is a message to process
-      if (getMessage(&ringBuffer, message, &delay_1s)) {
-          delay_done = false;
-          Serial.println("Printing message: " + String(message));
-          scrollText(message);
+      ArduinoOTA.handle();
+      if ((millis() - gSystemTimer1msLastSnapshot) >= 15000)
+      {
+        wait_OTA = false;
+        Serial.println("Starting application....");
       }
     }
-  
+    else
+    {
+      if ((millis() - gSystemTimer1msLastSnapshot) >= delay_1s * 1000)
+      {
+        gSystemTimer1msLastSnapshot = millis();
+        delay_done = true;
+
+      }
+      
+      mqttWiFiDemoApp_backGroundTask();
+
+      if (delay_done)
+      {
+        // Check if there is a message to process
+        if (getMessage(&ringBuffer, message, &delay_1s)) {
+            delay_done = false;
+            Serial.println("Printing message: " + String(message));
+            scrollText(message);
+        }
+      }
+    }  
   /*
 
   scrollText("Graphics");
