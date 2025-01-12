@@ -112,6 +112,14 @@ const char password[] = SECRET_PASS;
 // WiFi Server object and parameters
 WiFiServer server(80);
 
+void debugLogMqtt(String log_message)
+{
+  char message[255];
+  log_message.toCharArray(message, 255);
+  
+  client.publish("ledserver/debuglog", message);
+}
+
 void scrollText(char *p) {
   uint8_t charWidth;
   uint8_t cBuf[8]; // this should be ok for all built-in fonts
@@ -441,7 +449,7 @@ void setup()
 
   mx.begin();
   mqttWiFiDemoApp_init();
-  Serial.println("Waiting OTA update for 15 s....");
+  Serial.println("Waiting OTA update for 15 s....");  
 }
 
 
@@ -459,6 +467,7 @@ void loop()
       if ((millis() - gSystemTimer1msLastSnapshot) >= 15000)
       {
         wait_OTA = false;
+        debugLogMqtt("Starting application.....");        
         Serial.println("Starting application....");
       }
     }
@@ -479,6 +488,7 @@ void loop()
         if (getMessage(&ringBuffer, message, &delay_1s)) {
             delay_done = false;
             Serial.println("Printing message: " + String(message));
+            debugLogMqtt("Printing message" + String(message));
             scrollText(message);
         }
       }

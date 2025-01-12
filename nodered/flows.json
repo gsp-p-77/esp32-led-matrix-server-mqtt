@@ -389,6 +389,44 @@
         "wires": []
     },
     {
+        "id": "a1a345b2f31d3ca1",
+        "type": "mqtt in",
+        "z": "28213b78f09f039c",
+        "name": "",
+        "topic": "ledserver/debuglog",
+        "qos": "2",
+        "datatype": "auto-detect",
+        "broker": "7ced13f97f596f29",
+        "nl": false,
+        "rap": true,
+        "rh": 0,
+        "inputs": 0,
+        "x": 190,
+        "y": 240,
+        "wires": [
+            [
+                "1f30e23f9f7cb1dd"
+            ]
+        ]
+    },
+    {
+        "id": "1f30e23f9f7cb1dd",
+        "type": "debug",
+        "z": "28213b78f09f039c",
+        "name": "debugLog from ESP32",
+        "active": true,
+        "tosidebar": true,
+        "console": false,
+        "tostatus": false,
+        "complete": "payload",
+        "targetType": "msg",
+        "statusVal": "",
+        "statusType": "auto",
+        "x": 420,
+        "y": 240,
+        "wires": []
+    },
+    {
         "id": "7ced13f97f596f29",
         "type": "mqtt-broker",
         "name": "",
