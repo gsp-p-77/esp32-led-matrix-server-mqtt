@@ -1,0 +1,422 @@
+[
+    {
+        "id": "28213b78f09f039c",
+        "type": "tab",
+        "label": "LED Matrix Ausgabe",
+        "disabled": false,
+        "info": "",
+        "env": []
+    },
+    {
+        "id": "2f37569b1796918e",
+        "type": "mqtt out",
+        "z": "28213b78f09f039c",
+        "name": "Send LED message request",
+        "topic": "ledMessageRequest",
+        "qos": "0",
+        "retain": "false",
+        "respTopic": "",
+        "contentType": "",
+        "userProps": "",
+        "correl": "",
+        "expiry": "",
+        "broker": "7ced13f97f596f29",
+        "x": 900,
+        "y": 420,
+        "wires": []
+    },
+    {
+        "id": "50cecd11b1d23ecd",
+        "type": "http request",
+        "z": "28213b78f09f039c",
+        "name": "",
+        "method": "GET",
+        "ret": "obj",
+        "paytoqs": "ignore",
+        "url": "https://nightscout.gsw7711.de/api/v1/entries/?token=nodered-eb9cb1ef1a07d30b",
+        "tls": "",
+        "persist": false,
+        "proxy": "",
+        "insecureHTTPParser": false,
+        "authType": "",
+        "senderr": false,
+        "headers": [
+            {
+                "keyType": "other",
+                "keyValue": "accept",
+                "valueType": "other",
+                "valueValue": "application/json"
+            }
+        ],
+        "x": 390,
+        "y": 380,
+        "wires": [
+            [
+                "b7c2fae28c728bb0",
+                "54ac6ea8a8a1b327"
+            ]
+        ]
+    },
+    {
+        "id": "b7c2fae28c728bb0",
+        "type": "function",
+        "z": "28213b78f09f039c",
+        "name": "ParseGlucose",
+        "func": "// Access the payload (array of JSON objects)\nlet data = msg.payload;\n\n// Ensure the payload is an array and not empty\nif (!Array.isArray(data) || data.length === 0) {\n    node.error(\"No data available in msg.payload\", msg);\n    return null;\n}\n\n// Sort the array by the `date` field to find the latest entry\ndata.sort((a, b) => b.date - a.date);\n\n// Get the latest object (first element after sorting)\nlet latestEntry = data[0];\n\n// Create a new JSON object with only the `glucose` value\nlet result = latestEntry.sgv;\n\nmsg.payload= {\n    message: \"BG: \" + result + \" mg / dl               \",\n    delay: \"10\"\n}\n\n// Return the modified message\nreturn msg;",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 620,
+        "y": 400,
+        "wires": [
+            [
+                "2f37569b1796918e",
+                "5f57848f6d13605b"
+            ]
+        ]
+    },
+    {
+        "id": "18d606e391f63829",
+        "type": "inject",
+        "z": "28213b78f09f039c",
+        "name": "Repeat every min",
+        "props": [
+            {
+                "p": "payload"
+            },
+            {
+                "p": "topic",
+                "vt": "str"
+            }
+        ],
+        "repeat": "70",
+        "crontab": "",
+        "once": true,
+        "onceDelay": 0.1,
+        "topic": "",
+        "payload": "iso",
+        "payloadType": "date",
+        "x": 150,
+        "y": 420,
+        "wires": [
+            [
+                "50cecd11b1d23ecd",
+                "5879ca971990e8e1",
+                "e3d194e652fd6dba"
+            ]
+        ]
+    },
+    {
+        "id": "6d8f29f57811da9c",
+        "type": "delay",
+        "z": "28213b78f09f039c",
+        "name": "",
+        "pauseType": "delay",
+        "timeout": "12",
+        "timeoutUnits": "seconds",
+        "rate": "1",
+        "nbRateUnits": "1",
+        "rateUnits": "second",
+        "randomFirst": "1",
+        "randomLast": "5",
+        "randomUnits": "seconds",
+        "drop": false,
+        "allowrate": false,
+        "outputs": 1,
+        "x": 790,
+        "y": 520,
+        "wires": [
+            [
+                "c6a9b85d55f6d792",
+                "6e1da08f7d6da453"
+            ]
+        ]
+    },
+    {
+        "id": "6e1da08f7d6da453",
+        "type": "mqtt out",
+        "z": "28213b78f09f039c",
+        "name": "Send LED message request",
+        "topic": "ledMessageRequest",
+        "qos": "0",
+        "retain": "false",
+        "respTopic": "",
+        "contentType": "",
+        "userProps": "",
+        "correl": "",
+        "expiry": "",
+        "broker": "7ced13f97f596f29",
+        "x": 1160,
+        "y": 520,
+        "wires": []
+    },
+    {
+        "id": "54ac6ea8a8a1b327",
+        "type": "function",
+        "z": "28213b78f09f039c",
+        "name": "ParseDelta",
+        "func": "// Access the payload (array of JSON objects)\nlet data = msg.payload;\n\n// Ensure the payload is an array and not empty\nif (!Array.isArray(data) || data.length === 0) {\n    node.error(\"No data available in msg.payload\", msg);\n    return null;\n}\n\n// Sort the array by the `date` field to find the latest entry\ndata.sort((a, b) => b.date - a.date);\n\n// Get the latest object (first element after sorting)\nlet latestDelta = data[1];\n\n// Create a new JSON object with only the `delta` value\nlet result = latestDelta.delta;\n\nmsg.payload= {\n    message: \"Delta: \" + result + \" [5 min]              \",\n    delay: \"10\"\n}\n\n// Return the modified message\nreturn msg;",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 570,
+        "y": 500,
+        "wires": [
+            [
+                "6d8f29f57811da9c"
+            ]
+        ]
+    },
+    {
+        "id": "c6a9b85d55f6d792",
+        "type": "debug",
+        "z": "28213b78f09f039c",
+        "name": "Debug delta out",
+        "active": true,
+        "tosidebar": true,
+        "console": false,
+        "tostatus": false,
+        "complete": "payload",
+        "targetType": "msg",
+        "statusVal": "",
+        "statusType": "auto",
+        "x": 1020,
+        "y": 580,
+        "wires": []
+    },
+    {
+        "id": "5879ca971990e8e1",
+        "type": "delay",
+        "z": "28213b78f09f039c",
+        "name": "",
+        "pauseType": "delay",
+        "timeout": "24",
+        "timeoutUnits": "seconds",
+        "rate": "1",
+        "nbRateUnits": "1",
+        "rateUnits": "second",
+        "randomFirst": "1",
+        "randomLast": "5",
+        "randomUnits": "seconds",
+        "drop": false,
+        "allowrate": false,
+        "outputs": 1,
+        "x": 850,
+        "y": 660,
+        "wires": [
+            [
+                "2f75e09b06d9314f"
+            ]
+        ]
+    },
+    {
+        "id": "2f75e09b06d9314f",
+        "type": "function",
+        "z": "28213b78f09f039c",
+        "name": "only time",
+        "func": "// Konvertiere den Timestamp zu einem Date-Objekt\nlet date = new Date(msg.payload);\n\n// Extrahiere Stunden und Minuten\nlet hours = date.getHours().toString().padStart(2, '0');\nlet minutes = date.getMinutes().toString().padStart(2, '0');\n\n// Setze die Zeit im Format HH:MM in msg.payload\nmsg.payload = {\n    message: `${hours}:${minutes}                     `,\n    delay: 5\n}\n\nreturn msg;\n",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 1120,
+        "y": 660,
+        "wires": [
+            [
+                "3c98ba277e19622e",
+                "3bba55d8e246933f"
+            ]
+        ]
+    },
+    {
+        "id": "3c98ba277e19622e",
+        "type": "mqtt out",
+        "z": "28213b78f09f039c",
+        "name": "Send time",
+        "topic": "ledMessageRequest",
+        "qos": "0",
+        "retain": "false",
+        "respTopic": "",
+        "contentType": "",
+        "userProps": "",
+        "correl": "",
+        "expiry": "",
+        "broker": "7ced13f97f596f29",
+        "x": 1280,
+        "y": 660,
+        "wires": []
+    },
+    {
+        "id": "e3d194e652fd6dba",
+        "type": "delay",
+        "z": "28213b78f09f039c",
+        "name": "",
+        "pauseType": "delay",
+        "timeout": "36",
+        "timeoutUnits": "seconds",
+        "rate": "1",
+        "nbRateUnits": "1",
+        "rateUnits": "second",
+        "randomFirst": "1",
+        "randomLast": "5",
+        "randomUnits": "seconds",
+        "drop": false,
+        "allowrate": false,
+        "outputs": 1,
+        "x": 450,
+        "y": 760,
+        "wires": [
+            [
+                "e9c3b1bdf126408f"
+            ]
+        ]
+    },
+    {
+        "id": "e9c3b1bdf126408f",
+        "type": "dwdweather",
+        "z": "28213b78f09f039c",
+        "name": "",
+        "mosmixStation": "10348",
+        "lookAheadHours": "0",
+        "additionalFields": "",
+        "omitMessageOnStart": true,
+        "repeat": "0",
+        "topic": "",
+        "x": 650,
+        "y": 760,
+        "wires": [
+            [
+                "3b6e501865ec56a5"
+            ]
+        ]
+    },
+    {
+        "id": "3b6e501865ec56a5",
+        "type": "function",
+        "z": "28213b78f09f039c",
+        "name": "Filter weather",
+        "func": "let m_temp = \"\"\nlet m_humidity = \"\"\n\n// Prüfe, ob die Temperatur im JSON-Objekt existiert\nif (msg.payload && msg.payload.tempc !== undefined) {\n    m_temp = msg.payload.tempc\n}\nelse\n{\n    m_temp = \"Temperatur nicht verfügbar\"\n}\n\n// Prüfe, ob die humidity im JSON-Objekt existiert\nif (msg.payload && msg.payload.humidity !== undefined) {\n    m_humidity = msg.payload.humidity\n}\nelse\n{\n    m_humidity = \"Luftfeuchtigkeit nicht verfügbar\"\n}\n\nmsg.payload = {\n    message: \"Temperatur: \" + m_temp +  \"deg C       \" + \"Luftfeuchtigkeit: \" + m_humidity + \" %               \",\n    delay: 20\n}\n\n// Gib die modifizierte Nachricht zurück\nreturn msg;\n",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 840,
+        "y": 760,
+        "wires": [
+            [
+                "b0974a372861950a",
+                "ac1e4442ca91b760"
+            ]
+        ]
+    },
+    {
+        "id": "b0974a372861950a",
+        "type": "mqtt out",
+        "z": "28213b78f09f039c",
+        "name": "Send weather",
+        "topic": "ledMessageRequest",
+        "qos": "0",
+        "retain": "false",
+        "respTopic": "",
+        "contentType": "",
+        "userProps": "",
+        "correl": "",
+        "expiry": "",
+        "broker": "7ced13f97f596f29",
+        "x": 1060,
+        "y": 760,
+        "wires": []
+    },
+    {
+        "id": "5f57848f6d13605b",
+        "type": "debug",
+        "z": "28213b78f09f039c",
+        "name": "Debug Glucose out",
+        "active": true,
+        "tosidebar": true,
+        "console": false,
+        "tostatus": false,
+        "complete": "payload",
+        "targetType": "msg",
+        "statusVal": "",
+        "statusType": "auto",
+        "x": 970,
+        "y": 360,
+        "wires": []
+    },
+    {
+        "id": "3bba55d8e246933f",
+        "type": "debug",
+        "z": "28213b78f09f039c",
+        "name": "Debug time out",
+        "active": true,
+        "tosidebar": true,
+        "console": false,
+        "tostatus": false,
+        "complete": "payload",
+        "targetType": "msg",
+        "statusVal": "",
+        "statusType": "auto",
+        "x": 1260,
+        "y": 720,
+        "wires": []
+    },
+    {
+        "id": "ac1e4442ca91b760",
+        "type": "debug",
+        "z": "28213b78f09f039c",
+        "name": "Debug Weather out",
+        "active": true,
+        "tosidebar": true,
+        "console": false,
+        "tostatus": false,
+        "complete": "payload",
+        "targetType": "msg",
+        "statusVal": "",
+        "statusType": "auto",
+        "x": 1150,
+        "y": 820,
+        "wires": []
+    },
+    {
+        "id": "7ced13f97f596f29",
+        "type": "mqtt-broker",
+        "name": "",
+        "broker": "192.168.178.36",
+        "port": "1883",
+        "clientid": "",
+        "autoConnect": true,
+        "usetls": false,
+        "protocolVersion": "4",
+        "keepalive": "60",
+        "cleansession": true,
+        "autoUnsubscribe": true,
+        "birthTopic": "",
+        "birthQos": "0",
+        "birthRetain": "false",
+        "birthPayload": "",
+        "birthMsg": {},
+        "closeTopic": "",
+        "closeQos": "0",
+        "closeRetain": "false",
+        "closePayload": "",
+        "closeMsg": {},
+        "willTopic": "",
+        "willQos": "0",
+        "willRetain": "false",
+        "willPayload": "",
+        "willMsg": {},
+        "userProps": "",
+        "sessionExpiry": ""
+    }
+]

@@ -21,6 +21,58 @@
 #include <WiFi.h>
 #include <WiFiServer.h>
 #include <PubSubClient.h>
+#include <ArduinoJson.h>
+
+//RingBuffer
+#define BUFFER_SIZE 20       // Maximum number of messages in the buffer
+#define MAX_MSG_LENGTH 255   // Maximum length of each message
+#define JSON_PAYLOAD_LENGTH 1024
+
+typedef struct
+{
+  char buffer [MAX_MSG_LENGTH];
+  int duration_1s;
+}led_message;
+
+struct RingBuffer {
+    char msg_buffer[BUFFER_SIZE][MAX_MSG_LENGTH];
+    uint8_t msg_delay_1s_buffer[BUFFER_SIZE];
+    int head;  // Points to the next position to write
+    int tail;  // Points to the next position to read
+    int count; // Number of elements in the buffer
+};
+
+RingBuffer ringBuffer = {{0}, 0, 0, 0};
+
+// Function to add a message to the ring buffer
+bool addMessage(RingBuffer *rb, const char *msg, uint8_t msg_delay1s) {
+    if (rb->count == BUFFER_SIZE) {
+        // Buffer is full
+        return false;
+    }
+    strncpy(rb->msg_buffer[rb->head], msg, MAX_MSG_LENGTH - 1);    
+    rb->msg_buffer[rb->head][MAX_MSG_LENGTH - 1] = '\0'; // Null-terminate
+    rb->msg_delay_1s_buffer[rb->head] = msg_delay1s;
+    rb->head = (rb->head + 1) % BUFFER_SIZE;
+    rb->count++;
+    return true;
+}
+
+// Function to get a message from the ring buffer
+bool getMessage(RingBuffer *rb, char *msgOut, uint8_t *msg_delay_1s) {
+    if (rb->count == 0) {
+        // Buffer is empty
+        return false;
+    }
+    strncpy(msgOut, rb->msg_buffer[rb->tail], MAX_MSG_LENGTH);
+    *msg_delay_1s = rb->msg_delay_1s_buffer[rb->tail];
+    rb->tail = (rb->tail + 1) % BUFFER_SIZE;
+    rb->count--;
+    return true;
+}
+
+
+
 
 //MQTT
 String clientID="ESP32-";
@@ -245,25 +297,42 @@ static void reconnect()
   }
 }
 
-char new_led_output_message[255] = "No MQTT";
-bool new_text_flag = false;
 static void callback(char *topic, byte *message, unsigned int length)
-{
-  Serial.print("Message arrived on topic: ");
-  Serial.print(topic);
-  Serial.print(". Message: ");
-  char messageTemp[255];
+{   
+    if (String(topic) == "ledMessageRequest") 
+    {
+      char jsonPayload[JSON_PAYLOAD_LENGTH];  // Adjust size based on expected JSON length
+      length = (length >= sizeof(jsonPayload)) ? (sizeof(jsonPayload) - 1) : length;
+      strncpy(jsonPayload, (char *)message, length);
+      jsonPayload[length] = '\0'; // Null-terminate the message
 
+      StaticJsonDocument<JSON_PAYLOAD_LENGTH> doc;  // Adjust size as necessary
+      DeserializationError error = deserializeJson(doc, jsonPayload);
 
-  if (String(topic) == "ledMessageRequest")
-  {
-    memset(new_led_output_message, 0, sizeof(new_led_output_message));
-    memcpy(new_led_output_message, message, length);
+      if (error) {
+          Serial.print("Failed to parse JSON: ");
+          Serial.println(error.f_str());
+          return;
+      }
 
-    Serial.println(new_led_output_message);
-    new_text_flag = true;
-  }
+      // Extract elements from the JSON object
+      const char* messageTemp = doc["message"];
+      int delay = doc["delay"];
 
+      if (!message || delay < 0) {
+          Serial.println("Invalid JSON: Missing 'message' or 'delay'.");
+          return;
+      }
+
+      // Add the message to the ring buffer
+      if (!addMessage(&ringBuffer, messageTemp, delay)) {
+          Serial.println("Ring buffer full! Dropping message.");
+      } else {
+          // Optionally store the delay if needed for later processing
+          Serial.print("Message added with delay: ");
+          Serial.println(delay);
+      }
+    }
 }
 
 void mqttWiFiDemoApp_init(void)
@@ -326,17 +395,33 @@ void setup()
   mqttWiFiDemoApp_init();
 }
 
+
 void loop()
 {
+    uint64_t gSystemTimer1msLastSnapshot = millis();
+  	bool delay_done = true;
+    static char message[MAX_MSG_LENGTH];
+    static uint8_t delay_1s = 0;
 
-  scrollText(new_led_output_message);
-  new_text_flag = false;
-  mx.clear();
-  while (! new_text_flag)
-  {
+    if ((millis() - gSystemTimer1msLastSnapshot) >= delay_1s * 1000)
+    {
+      gSystemTimer1msLastSnapshot = millis();
+      delay_done = true;
+
+    }
     
     mqttWiFiDemoApp_backGroundTask();
-  }
+
+    if (delay_done)
+    {
+      // Check if there is a message to process
+      if (getMessage(&ringBuffer, message, &delay_1s)) {
+          delay_done = false;
+          Serial.println("Printing message: " + String(message));
+          scrollText(message);
+      }
+    }
+  
   /*
 
   scrollText("Graphics");
