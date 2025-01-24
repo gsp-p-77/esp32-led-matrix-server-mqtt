@@ -24,6 +24,12 @@
 #include <ArduinoJson.h>
 #include <ESPmDNS.h>
 #include <ArduinoOTA.h>
+#include <freertos/FreeRTOS.h>
+#include <freertos/task.h>
+#include <freertos/queue.h>
+#include "soc/soc.h"
+#include "soc/rtc_cntl_reg.h"
+
 
 
 //RingBuffer
@@ -31,51 +37,44 @@
 #define MAX_MSG_LENGTH 255   // Maximum length of each message
 #define JSON_PAYLOAD_LENGTH 1024
 
+// Define a FreeRTOS queue
+QueueHandle_t mqttQueue;
+
+// MQTT message structure
+struct MqttMessage {
+    char topic[64];
+    char payload[256];
+};
+
+
 typedef struct
 {
   char buffer [MAX_MSG_LENGTH];
   int duration_1s;
 }led_message;
 
-struct RingBuffer {
-    char msg_buffer[BUFFER_SIZE][MAX_MSG_LENGTH];
-    uint8_t msg_delay_1s_buffer[BUFFER_SIZE];
-    int head;  // Points to the next position to write
-    int tail;  // Points to the next position to read
-    int count; // Number of elements in the buffer
-};
+// MQTT callback
+void mqttCallback(char* topic, byte* payload, unsigned int length) {
+    if (String(topic) == "ledMessageRequest") 
+    {
 
-RingBuffer ringBuffer = {{0}, 0, 0, 0};
+      MqttMessage message;
+      
+      // Add the message to the queue
+      strncpy(message.topic, topic, sizeof(message.topic) - 1);
+      message.topic[sizeof(message.topic) - 1] = '\0'; // Null-terminate
 
-// Function to add a message to the ring buffer
-bool addMessage(RingBuffer *rb, const char *msg, uint8_t msg_delay1s) {
-    if (rb->count == BUFFER_SIZE) {
-        // Buffer is full
-        return false;
-    }
-    strncpy(rb->msg_buffer[rb->head], msg, MAX_MSG_LENGTH - 1);    
-    rb->msg_buffer[rb->head][MAX_MSG_LENGTH - 1] = '\0'; // Null-terminate
-    rb->msg_delay_1s_buffer[rb->head] = msg_delay1s;
-    rb->head = (rb->head + 1) % BUFFER_SIZE;
-    rb->count++;
-    return true;
+
+      length = min(length, sizeof(message.payload) - 1);
+      strncpy(message.payload, (char*)payload, length);
+      message.payload[length] = '\0'; // Null-terminate
+
+      // Push the message to the queue
+      if (xQueueSend(mqttQueue, &message, 0) != pdPASS) {
+        Serial.println("Queue full, message dropped!");
+      } 
+    }        
 }
-
-// Function to get a message from the ring buffer
-bool getMessage(RingBuffer *rb, char *msgOut, uint8_t *msg_delay_1s) {
-    if (rb->count == 0) {
-        // Buffer is empty
-        return false;
-    }
-    strncpy(msgOut, rb->msg_buffer[rb->tail], MAX_MSG_LENGTH);
-    *msg_delay_1s = rb->msg_delay_1s_buffer[rb->tail];
-    rb->tail = (rb->tail + 1) % BUFFER_SIZE;
-    rb->count--;
-    return true;
-}
-
-
-
 
 //MQTT
 String clientID="ESP32-";
@@ -312,41 +311,46 @@ static void reconnect()
   }
 }
 
-static void callback(char *topic, byte *message, unsigned int length)
-{   
-    if (String(topic) == "ledMessageRequest") 
-    {
-      char jsonPayload[JSON_PAYLOAD_LENGTH];  // Adjust size based on expected JSON length
-      length = (length >= sizeof(jsonPayload)) ? (sizeof(jsonPayload) - 1) : length;
-      strncpy(jsonPayload, (char *)message, length);
-      jsonPayload[length] = '\0'; // Null-terminate the message
 
-      StaticJsonDocument<JSON_PAYLOAD_LENGTH> doc;  // Adjust size as necessary
-      DeserializationError error = deserializeJson(doc, jsonPayload);
+void processMqttTask(void* param) {
+    MqttMessage message;
 
-      if (error) {
-          Serial.print("Failed to parse JSON: ");
-          Serial.println(error.f_str());
-          return;
-      }
+    while (true) {
+        // Wait for a message from the queue
+        if (xQueueReceive(mqttQueue, &message, portMAX_DELAY) == pdPASS) {
+            // Process the message
+            Serial.print("Received topic: ");
+            Serial.println(message.topic);
+            Serial.print("Payload: ");
+            Serial.println(message.payload);
 
-      // Extract elements from the JSON object
-      const char* messageTemp = doc["message"];
-      int delay = doc["delay"];
+            // Perform time-consuming actions here
+            // ...
 
-      if (!message || delay < 0) {
-          Serial.println("Invalid JSON: Missing 'message' or 'delay'.");
-          return;
-      }
+            char jsonPayload[JSON_PAYLOAD_LENGTH];  // Adjust size based on expected JSON length
+            uint16_t length = 0;
+            length = (strlen(message.payload) >= sizeof(jsonPayload)) ? (sizeof(jsonPayload) - 1) : strlen(message.payload);
+            strncpy(jsonPayload, (char *)message.payload, length);
+            jsonPayload[length] = '\0'; // Null-terminate the message
 
-      // Add the message to the ring buffer
-      if (!addMessage(&ringBuffer, messageTemp, delay)) {
-          Serial.println("Ring buffer full! Dropping message.");
-      } else {
-          // Optionally store the delay if needed for later processing
-          Serial.print("Message added with delay: ");
-          Serial.println(delay);
-      }
+            StaticJsonDocument<JSON_PAYLOAD_LENGTH> doc;  // Adjust size as necessary
+            DeserializationError error = deserializeJson(doc, jsonPayload);
+
+            if (error) {
+                Serial.print("Failed to parse JSON: ");
+                Serial.println(error.f_str());
+                return;
+            }
+
+            // Extract elements from the JSON object
+            const char* messageTemp = doc["message"];
+            int delay = doc["delay"];
+
+            if (messageTemp)
+            {
+              scrollText((char*)messageTemp);
+            }            
+        }
     }
 }
 
@@ -416,26 +420,20 @@ ArduinoOTA.onStart([]() {
     
     //MQTT
     client.setServer(mqtt_server, 1883);
-    client.setCallback(callback);    
+    client.setCallback(mqttCallback);    
+
+    // Create the queue
+    mqttQueue = xQueueCreate(10, sizeof(MqttMessage));
+    
+    if (mqttQueue == NULL) {
+        Serial.println("Failed to create queue!");
+        while (1);
+    }
+
+    // Create the processing task
+    xTaskCreate(processMqttTask, "Process MQTT Task", 4096, NULL, 1, NULL);
   }
 }
-
-void mqttWiFiDemoApp_backGroundTask(void)
-{
-  if (!client.connected())
-  {
-    reconnect();
-  }
-
-  if (!client.loop())
-  {
-    client.connect("ESP32MQTT");
-  }
-
-  
-
-}
-
 
 void setup()
 {
@@ -447,8 +445,12 @@ void setup()
   
   Serial.println("Starting ESP32...");
 
+  // Disable brownout detector
+  WRITE_PERI_REG(RTC_CNTL_BROWN_OUT_REG, 0);
+  
   mx.begin();
-  mqttWiFiDemoApp_init();
+  mqttWiFiDemoApp_init();  
+  scrollText("OTA");
   Serial.println("Waiting OTA update for 15 s....");  
 }
 
@@ -462,36 +464,28 @@ void loop()
     static uint8_t delay_1s = 0;
 
     if (wait_OTA)
-    {
+    {      
       ArduinoOTA.handle();
       if ((millis() - gSystemTimer1msLastSnapshot) >= 15000)
       {
         wait_OTA = false;
         debugLogMqtt("Starting application.....");        
         Serial.println("Starting application....");
+        scrollText("Waiting for MQTT");
       }
     }
     else
     {
-      if ((millis() - gSystemTimer1msLastSnapshot) >= delay_1s * 1000)
+      if (!client.connected())
       {
-        gSystemTimer1msLastSnapshot = millis();
-        delay_done = true;
-
+        reconnect();
       }
+
+      if (!client.loop())
+      {
+        client.connect("ESP32MQTT");
+      }      
       
-      mqttWiFiDemoApp_backGroundTask();
-
-      if (delay_done)
-      {
-        // Check if there is a message to process
-        if (getMessage(&ringBuffer, message, &delay_1s)) {
-            delay_done = false;
-            Serial.println("Printing message: " + String(message));
-            debugLogMqtt("Printing message" + String(message));
-            scrollText(message);
-        }
-      }
     }  
   /*
 
